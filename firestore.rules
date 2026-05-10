@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitives
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(data) { return isSignedIn() && data.ownerId == request.auth.uid; }
+    function isCreator(data) { return isSignedIn() && data.userId == request.auth.uid; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    
+    function isValidRisk(data) {
+      return data.keys().hasAll(['title', 'inherentImpact', 'inherentLikelihood', 'residualImpact', 'residualLikelihood', 'status', 'ownerId', 'createdAt'])
+        && data.title is string && data.title.size() <= 200
+        && data.inherentImpact is number && data.inherentImpact >= 1 && data.inherentImpact <= 5
+        && data.inherentLikelihood is number && data.inherentLikelihood >= 1 && data.inherentLikelihood <= 5
+        && data.residualImpact is number && data.residualImpact >= 1 && data.residualImpact <= 5
+        && data.residualLikelihood is number && data.residualLikelihood >= 1 && data.residualLikelihood <= 5
+        && data.status in ['Identified', 'Mitigating', 'Remediated', 'Accepted']
+        && data.ownerId == request.auth.uid;
+    }
+
+    function isValidVendorAudit(data) {
+      return data.vendorName is string && data.vendorName.size() <= 200
+        && data.riskScore is number
+        && data.status in ['Pending', 'In Review', 'Approved', 'Flagged']
+        && data.userId == request.auth.uid;
+    }
+
+    function isValidControlAction(data) {
+      return data.controlId is string
+        && data.action is string
+        && data.userId == request.auth.uid;
+    }
+
+    function isValidEvidence(data) {
+      return data.keys().hasAll(['type', 'title', 'description', 'hash', 'signature', 'verifier', 'timestamp', 'userId', 'metadata'])
+        && data.type in ['POLICY', 'AUDIT', 'CONTROL_VERIFICATION', 'CERTIFICATION']
+        && data.title is string && data.title.size() <= 200
+        && data.hash is string && data.hash.size() == 64
+        && data.signature is string && data.signature.size() <= 256
+        && data.userId == request.auth.uid;
+    }
+
+    // Risks Collection
+    match /risks/{riskId} {
+      allow create: if isSignedIn() && isValidRisk(request.resource.data);
+      allow get: if isOwner(resource.data);
+      allow list: if isOwner(resource.data);
+      allow update: if isOwner(resource.data) && isValidRisk(request.resource.data);
+      allow delete: if isOwner(resource.data);
+    }
+
+    // Vendor Audits
+    match /vendorAudits/{auditId} {
+      allow create: if isSignedIn() && isValidVendorAudit(request.resource.data);
+      allow get: if isCreator(resource.data);
+      allow list: if isCreator(resource.data);
+      allow update: if isCreator(resource.data) && isValidVendorAudit(request.resource.data);
+      allow delete: if isCreator(resource.data);
+    }
+
+    // Control Actions
+    match /controlActions/{actionId} {
+      allow create: if isSignedIn() && isValidControlAction(request.resource.data);
+      allow list: if isCreator(resource.data);
+    }
+
+    // Evidence Collection
+    match /evidence/{evidenceId} {
+      allow create: if isSignedIn() && isValidEvidence(request.resource.data);
+      allow get: if isCreator(resource.data);
+      allow list: if isCreator(resource.data);
+      allow delete: if isCreator(resource.data);
+    }
+  }
+}

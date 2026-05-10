@@ -1,0 +1,83 @@
+{
+  "entities": {
+    "Risk": {
+      "title": "Risk Registry Entry",
+      "description": "Log of organizational risks with quantification.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Short title of the risk" },
+        "description": { "type": "string", "description": "Detailed description" },
+        "inherentImpact": { "type": "number", "description": "1-5 score for impact pre-control" },
+        "inherentLikelihood": { "type": "number", "description": "1-5 score for likelihood pre-control" },
+        "residualImpact": { "type": "number", "description": "1-5 score for impact post-control" },
+        "residualLikelihood": { "type": "number", "description": "1-5 score for likelihood post-control" },
+        "status": { "type": "string", "enum": ["Identified", "Mitigating", "Remediated", "Accepted"] },
+        "ownerId": { "type": "string", "description": "User ID of the risk owner" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "inherentImpact", "inherentLikelihood", "ownerId"]
+    },
+    "VendorAudit": {
+      "title": "Third-Party Risk Audit",
+      "description": "AI-powered audit of a vendor contract.",
+      "type": "object",
+      "properties": {
+        "vendorName": { "type": "string" },
+        "contractSummary": { "type": "string" },
+        "riskScore": { "type": "number" },
+        "analysis": { "type": "string", "description": "Gemini-generated markdown analysis" },
+        "findings": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["Pending", "In Review", "Approved", "Flagged"] },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "ControlAction": {
+      "title": "Technical Control Action",
+      "description": "Simulation of a control enforcement event.",
+      "type": "object",
+      "properties": {
+        "controlId": { "type": "string" },
+        "action": { "type": "string" },
+        "status": { "type": "string" },
+        "userId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Evidence": {
+      "title": "Verifiable Evidence Artifact",
+      "description": "Immutable, signed record of GRC lab activity.",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["POLICY", "AUDIT", "CONTROL_VERIFICATION", "CERTIFICATION"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "hash": { "type": "string" },
+        "signature": { "type": "string" },
+        "verifier": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "userId": { "type": "string" },
+        "metadata": { "type": "object" }
+      },
+      "required": ["type", "title", "hash", "signature", "userId", "timestamp"]
+    }
+  },
+  "firestore": {
+    "risks": {
+      "schema": { "$ref": "#/entities/Risk" },
+      "description": "Organizational risk register"
+    },
+    "vendorAudits": {
+      "schema": { "$ref": "#/entities/VendorAudit" },
+      "description": "AI Vendor contract audits"
+    },
+    "controlActions": {
+      "schema": { "$ref": "#/entities/ControlAction" },
+      "description": "Logs of technical control testing events"
+    },
+    "evidence": {
+      "schema": { "$ref": "#/entities/Evidence" },
+      "description": "Immutable audit artifacts"
+    }
+  }
+}
