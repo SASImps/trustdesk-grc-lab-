@@ -5,6 +5,7 @@ import { auditContract } from '../services/gemini';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, addDoc, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 import { VendorAudit } from '../types';
+import { logSystemEvent } from '../lib/logger';
 
 export default function TPRM() {
   const [contractText, setContractText] = useState('');
@@ -29,7 +30,7 @@ export default function TPRM() {
     setAuditing(true);
     try {
       const result = await auditContract(contractText);
-      await addDoc(collection(db, 'vendorAudits'), {
+      const auditData = {
         vendorName,
         contractSummary: contractText.substring(0, 500) + '...',
         riskScore: result.riskScore,
@@ -38,7 +39,18 @@ export default function TPRM() {
         status: result.riskScore > 70 ? 'Flagged' : 'Approved',
         userId: auth.currentUser.uid,
         createdAt: new Date().toISOString()
-      });
+      };
+      
+      const docRef = await addDoc(collection(db, 'vendorAudits'), auditData);
+
+      await logSystemEvent(
+        `AI Contract Audit: ${vendorName}`,
+        'AI_AUDIT',
+        result.riskScore > 70 ? 'failure' : 'success',
+        `Contract audited with risk score: ${result.riskScore}. Findings: ${result.findings.join(', ')}`,
+        docRef.id
+      );
+
       setContractText('');
       setVendorName('');
     } catch (error) {

@@ -23,11 +23,23 @@ export interface VendorAudit {
   createdAt: string;
 }
 
+export interface ServiceInventory {
+  id?: string;
+  name: string;
+  type: 'API' | 'Database' | 'Cloud Storage' | 'Compute' | 'Auth Service';
+  provider: 'AWS' | 'GCP' | 'Azure' | 'External';
+  status: 'Healthy' | 'Degraded' | 'Vulnerable';
+  lastScanned: string;
+  vulnerabilities: string[];
+}
+
 export interface ControlAction {
   id?: string;
   controlId: string;
   action: string;
-  status: string;
+  status: 'success' | 'failure';
+  type: 'AI_AUDIT' | 'RISK_ASSESSMENT' | 'POLICY_GENERATION' | 'LAB_EXECUTION' | 'SYSTEM';
+  details: string;
   userId: string;
   timestamp: string;
   signature?: string;

@@ -8,8 +8,7 @@ service cloud.firestore {
 
     // Phase 3: Primitive Definitions
     function isSignedIn() {
-      // Mandate signed in users (relaxed email verification for better dev experience if needed)
-      return request.auth != null;
+      return request.auth != null && request.auth.token.email_verified == true;
     }
 
     function isOwner(userId) {
@@ -17,7 +16,6 @@ service cloud.firestore {
     }
 
     function isValidId(id) {
-      // Path Variable Hardening (Pillar 3)
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
@@ -29,11 +27,12 @@ service cloud.firestore {
       return resource.data;
     }
 
+    // Helper to validate string size
     function isLimitString(val, max) {
       return val is string && val.size() <= max;
     }
 
-    // Validation Blueprints (Pillar 2)
+    // Validation Blueprints
     function isValidRisk(data) {
       return data.keys().hasAll(['title', 'description', 'ownerId', 'status', 'inherentImpact', 'inherentLikelihood', 'createdAt'])
         && data.keys().size() <= 10
@@ -41,15 +40,15 @@ service cloud.firestore {
         && isLimitString(data.description, 2000)
         && data.ownerId == request.auth.uid
         && data.status in ['Identified', 'Mitigating', 'Remediated', 'Accepted']
-        && (data.inherentImpact is number || data.inherentImpact is int) && data.inherentImpact >= 1 && data.inherentImpact <= 5
-        && (data.inherentLikelihood is number || data.inherentLikelihood is int) && data.inherentLikelihood >= 1 && data.inherentLikelihood <= 5;
+        && data.inherentImpact is int && data.inherentImpact >= 1 && data.inherentImpact <= 5
+        && data.inherentLikelihood is int && data.inherentLikelihood >= 1 && data.inherentLikelihood <= 5;
     }
 
     function isValidVendorAudit(data) {
       return data.keys().hasAll(['vendorName', 'contractSummary', 'riskScore', 'findings', 'status', 'userId', 'createdAt'])
         && data.keys().size() <= 8
         && isLimitString(data.vendorName, 200)
-        && (data.riskScore is number || data.riskScore is int)
+        && data.riskScore is int
         && data.findings is list && data.findings.size() <= 50
         && data.userId == request.auth.uid;
     }
@@ -80,17 +79,12 @@ service cloud.firestore {
 
     // Collection Rules
 
-    match /system/connectivity_test {
-      allow read: if true;
-    }
-
     match /risks/{riskId} {
       allow get: if isOwner(existing().ownerId) && isValidId(riskId);
-      // Pillar 8: Secure List Queries (Evaluation against resource.data)
       allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
       allow create: if isSignedIn() && isValidRisk(incoming()) && isValidId(riskId);
       allow update: if isOwner(existing().ownerId) && isValidRisk(incoming()) && (
-        // Pillar 4: Action-Based Update Pattern (affectedKeys)
+        // Action: Update Status or Remeditation
         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'residualImpact', 'residualLikelihood', 'updatedAt'])
       ) && incoming().ownerId == existing().ownerId;
       allow delete: if isOwner(existing().ownerId);

@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { Beaker, ShieldAlert, Fingerprint, Code2, Play, CheckCircle2, AlertTriangle, Terminal, Cpu, Apple, Globe, Sparkles, Award, HelpCircle, ChevronRight, Hash, ShieldCheck, Download } from 'lucide-react';
+import { Beaker, ShieldAlert, Fingerprint, Code2, Play, CheckCircle2, AlertTriangle, Terminal, Cpu, Apple, Globe, Sparkles, Award, HelpCircle, ChevronRight, Hash, ShieldCheck, Download, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { assessAISafety, generateGRCSolution, gradeScenario, generateCriticalThinkingTest } from '../services/gemini';
 import { db, auth } from '../lib/firebase';
 import { collection, addDoc } from 'firebase/firestore';
+import { logSystemEvent } from '../lib/logger';
+import { createEvidence } from '../lib/evidence';
 
 const COMPANIES = [
   { id: 'google', name: 'Google', icon: Globe, color: 'text-blue-500' },
@@ -54,25 +56,6 @@ export default function LabModules() {
   const [currentTestIndex, setCurrentTestIndex] = useState(0);
   const [score, setScore] = useState(0);
 
-  const createEvidence = async (title: string, type: 'POLICY' | 'AUDIT' | 'CONTROL_VERIFICATION' | 'CERTIFICATION', description: string, metadata: any) => {
-    if (!auth.currentUser) return;
-    // Simulate high-entropy cryptographic evidence tracking
-    const hash = Array.from({length: 64}, () => Math.floor(Math.random() * 16).toString(16)).join('');
-    const signature = `v4_sig_${btoa(auth.currentUser.uid + Date.now()).slice(0, 48)}`;
-    
-    await addDoc(collection(db, 'evidence'), {
-      title,
-      type,
-      description,
-      hash,
-      signature,
-      verifier: 'TrustDesk_v4_Auditor',
-      timestamp: new Date().toISOString(),
-      userId: auth.currentUser.uid,
-      metadata
-    });
-  };
-
   const handleExportResult = () => {
     const dataToExport = activeLab.id === 'certification' ? { grading, test, score } : result;
     if (!dataToExport) {
@@ -112,15 +95,25 @@ export default function LabModules() {
     setScanning(true);
     setResult(null);
 
+    const actionId = Math.random().toString(36).substring(7).toUpperCase();
+
     try {
       if (activeLab.id === 'grc-lab') {
         const res = await generateGRCSolution(selectedCompany.name, activeLab.standard, promptInput);
         setResult(res);
         await createEvidence(
-          `Policy Generation: ${selectedCompany.name}`,
           'POLICY',
+          `Policy Generation: ${selectedCompany.name}`,
           `AI-assisted policy generation for ${activeLab.standard} in ${selectedCompany.name}.`,
           { res, company: selectedCompany.name }
+        );
+        
+        await logSystemEvent(
+          `GRC Lab: Policy Drafted`,
+          'POLICY_GENERATION',
+          'success',
+          `Policy framework generated for ${selectedCompany.name} targeting ${activeLab.standard}.`,
+          actionId
         );
       } else if (activeLab.id === 'certification') {
         setCertStep('grading');
@@ -135,45 +128,70 @@ export default function LabModules() {
         setGrading(gradeRes);
         const testRes = await generateCriticalThinkingTest(scenarioText);
         setTest(testRes);
+        
+        await logSystemEvent(
+          `Certification Started: ${activeLab.standard}`,
+          'LAB_EXECUTION',
+          'success',
+          `Scenario submitted for peer review. Inherent grade: ${gradeRes.score}%`,
+          actionId
+        );
       } else {
         const res = await assessAISafety(promptInput);
         setResult(res);
         await createEvidence(
-          `AI Safety Audit: Sandbox`,
           'AUDIT',
+          `AI Safety Audit: Sandbox`,
           `Automated stress-test of LLM safety filters against prompt injection patterns.`,
           { res }
         );
+        
+        await logSystemEvent(
+          `AI Safety Audit: Scanning Done`,
+          'AI_AUDIT',
+          res.riskRating === 'High' ? 'failure' : 'success',
+          `Risk Rating: ${res.riskRating}. PII Found: ${res.piiFound}`,
+          actionId
+        );
       }
-      
-      await addDoc(collection(db, 'controlActions'), {
-        controlId: activeLab.id,
-        action: activeLab.id === 'grc-lab' ? 'GRC_POLICY_GEN' : 
-               activeLab.id === 'certification' ? 'CERT_GRADE' : 'AI_SAFETY_SCAN',
-        company: selectedCompany.name,
-        userId: auth.currentUser.uid,
-        timestamp: new Date().toISOString()
-      });
     } catch (e) {
       console.error(e);
+      await logSystemEvent(
+        `Lab Failure: ${activeLab.id}`,
+        'LAB_EXECUTION',
+        'failure',
+        `Error: ${e instanceof Error ? e.message : 'Unknown error during lab execution'}`,
+        actionId
+      );
     } finally {
       setScanning(false);
     }
   };
 
-  const handleTestAnswer = (index: number) => {
+  const handleTestAnswer = async (index: number) => {
+    let newScore = score;
     if (index === test.questions[currentTestIndex].correctIndex) {
-      setScore(s => s + 1);
+      newScore = score + 1;
+      setScore(newScore);
     }
+    
     if (currentTestIndex < (test?.questions?.length || 0) - 1) {
       setCurrentTestIndex(i => i + 1);
     } else {
       setCertStep('complete');
-      createEvidence(
-        `Professional Certification: ${activeLab.standard}`,
+      await createEvidence(
         'CERTIFICATION',
+        `Professional Certification: ${activeLab.standard}`,
         `Successfully passed AI Peer-Review (${grading.score}%) and Critical Thinking Assessment.`,
-        { grade: grading.score, score }
+        { grade: grading.score, finalScore: newScore, total: test.questions.length }
+      );
+      
+      await logSystemEvent(
+        `Certification Complete: ${activeLab.standard}`,
+        'LAB_EXECUTION',
+        'success',
+        `Final Exam Score: ${newScore}/${test.questions.length}. Peer Review: ${grading.score}%`,
+        'CERT_' + Math.random().toString(36).substring(7).toUpperCase()
       );
     }
   };

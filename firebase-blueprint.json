@@ -1,52 +1,55 @@
 {
   "entities": {
     "Risk": {
-      "title": "Risk Registry Entry",
-      "description": "Log of organizational risks with quantification.",
+      "title": "Risk Entity",
+      "description": "Represents a compliance risk or finding.",
       "type": "object",
       "properties": {
-        "title": { "type": "string", "description": "Short title of the risk" },
-        "description": { "type": "string", "description": "Detailed description" },
-        "inherentImpact": { "type": "number", "description": "1-5 score for impact pre-control" },
-        "inherentLikelihood": { "type": "number", "description": "1-5 score for likelihood pre-control" },
-        "residualImpact": { "type": "number", "description": "1-5 score for impact post-control" },
-        "residualLikelihood": { "type": "number", "description": "1-5 score for likelihood post-control" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "inherentImpact": { "type": "number" },
+        "inherentLikelihood": { "type": "number" },
+        "residualImpact": { "type": "number" },
+        "residualLikelihood": { "type": "number" },
         "status": { "type": "string", "enum": ["Identified", "Mitigating", "Remediated", "Accepted"] },
-        "ownerId": { "type": "string", "description": "User ID of the risk owner" },
+        "ownerId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["title", "inherentImpact", "inherentLikelihood", "ownerId"]
+      "required": ["title", "ownerId", "status", "inherentImpact", "inherentLikelihood"]
     },
     "VendorAudit": {
-      "title": "Third-Party Risk Audit",
-      "description": "AI-powered audit of a vendor contract.",
+      "title": "Vendor Audit",
+      "description": "Records AI-assisted vendor contract audits.",
       "type": "object",
       "properties": {
         "vendorName": { "type": "string" },
         "contractSummary": { "type": "string" },
         "riskScore": { "type": "number" },
-        "analysis": { "type": "string", "description": "Gemini-generated markdown analysis" },
         "findings": { "type": "array", "items": { "type": "string" } },
-        "status": { "type": "string", "enum": ["Pending", "In Review", "Approved", "Flagged"] },
+        "status": { "type": "string" },
         "userId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
-      }
+      },
+      "required": ["vendorName", "userId", "riskScore"]
     },
     "ControlAction": {
-      "title": "Technical Control Action",
-      "description": "Simulation of a control enforcement event.",
+      "title": "Control Action Log",
+      "description": "System event log for audit trails.",
       "type": "object",
       "properties": {
         "controlId": { "type": "string" },
         "action": { "type": "string" },
-        "status": { "type": "string" },
+        "type": { "type": "string", "enum": ["AI_AUDIT", "RISK_ASSESSMENT", "POLICY_GENERATION", "LAB_EXECUTION", "SYSTEM"] },
+        "status": { "type": "string", "enum": ["success", "failure"] },
+        "details": { "type": "string" },
         "userId": { "type": "string" },
         "timestamp": { "type": "string", "format": "date-time" }
-      }
+      },
+      "required": ["action", "type", "userId", "timestamp"]
     },
     "Evidence": {
-      "title": "Verifiable Evidence Artifact",
-      "description": "Immutable, signed record of GRC lab activity.",
+      "title": "Evidence Artifact",
+      "description": "Immutable compliance evidence stored in the vault.",
       "type": "object",
       "properties": {
         "type": { "type": "string", "enum": ["POLICY", "AUDIT", "CONTROL_VERIFICATION", "CERTIFICATION"] },
@@ -59,25 +62,44 @@
         "userId": { "type": "string" },
         "metadata": { "type": "object" }
       },
-      "required": ["type", "title", "hash", "signature", "userId", "timestamp"]
+      "required": ["type", "title", "userId", "hash", "signature"]
+    },
+    "InventoryItem": {
+      "title": "Inventory Item",
+      "description": "Enterprise cloud topography service node.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "provider": { "type": "string" },
+        "status": { "type": "string", "enum": ["Healthy", "Degraded", "Vulnerable"] },
+        "lastScanned": { "type": "string", "format": "date-time" },
+        "vulnerabilities": { "type": "array", "items": { "type": "string" } },
+        "userId": { "type": "string" }
+      },
+      "required": ["name", "type", "userId", "status"]
     }
   },
   "firestore": {
     "risks": {
-      "schema": { "$ref": "#/entities/Risk" },
-      "description": "Organizational risk register"
+      "schema": "Risk",
+      "description": "Root collection for all compliance risks."
     },
     "vendorAudits": {
-      "schema": { "$ref": "#/entities/VendorAudit" },
-      "description": "AI Vendor contract audits"
+      "schema": "VendorAudit",
+      "description": "Root collection for all TPRM audits."
     },
     "controlActions": {
-      "schema": { "$ref": "#/entities/ControlAction" },
-      "description": "Logs of technical control testing events"
+      "schema": "ControlAction",
+      "description": "System event and audit log stream."
     },
     "evidence": {
-      "schema": { "$ref": "#/entities/Evidence" },
-      "description": "Immutable audit artifacts"
+      "schema": "Evidence",
+      "description": "The evidence vault for immutable artifacts."
+    },
+    "inventory": {
+      "schema": "InventoryItem",
+      "description": "Infrastructure service inventory nodes."
     }
   }
 }

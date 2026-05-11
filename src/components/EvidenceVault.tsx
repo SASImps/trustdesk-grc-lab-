@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { db, auth } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 import { Evidence } from '../types';
 import { ShieldCheck, FileText, Lock, CheckCircle2, Search, ExternalLink, Download, Fingerprint } from 'lucide-react';
@@ -22,7 +22,7 @@ export default function EvidenceVault() {
     const unsub = onSnapshot(q, (s) => {
       setEvidence(s.docs.map(d => ({ id: d.id, ...d.data() } as Evidence)));
       setLoading(false);
-    });
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'evidence'));
     
     return unsub;
   }, []);

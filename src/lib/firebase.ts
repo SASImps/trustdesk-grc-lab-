@@ -11,16 +11,25 @@ import localConfig from '../../firebase-applet-config.json';
 // your documents unless they satisfy the conditions in your security rules.
 
 // Initialize Firebase with config from local file, with env variable overrides
+// We prioritize localConfig for everything because it's automatically provisioned by the system
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || localConfig.apiKey,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || localConfig.authDomain,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || localConfig.projectId,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || localConfig.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || localConfig.messagingSenderId,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || localConfig.appId,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || localConfig.measurementId,
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID || (localConfig as any).firestoreDatabaseId || '(default)'
+  apiKey: localConfig.apiKey || import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: localConfig.authDomain || import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: localConfig.projectId || import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: localConfig.storageBucket || import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: localConfig.messagingSenderId || import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: localConfig.appId || import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: localConfig.measurementId || import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
+  firestoreDatabaseId: (localConfig as any).firestoreDatabaseId || import.meta.env.VITE_FIREBASE_DATABASE_ID || '(default)'
 };
+
+console.log("Firebase Config Initialization:", {
+  projectId: firebaseConfig.projectId,
+  hasApiKey: !!firebaseConfig.apiKey,
+  hasAppId: !!firebaseConfig.appId,
+  databaseId: firebaseConfig.firestoreDatabaseId,
+  usingLocalConfig: !!localConfig.apiKey
+});
 
 export const isFirebaseConfigured = !!firebaseConfig.apiKey;
 
@@ -76,19 +85,25 @@ async function testConnection() {
   
   connectionStatus = 'checking';
   try {
-    // We try to fetch a non-existent doc to test connectivity
-    // If it fails with "offline", it's a configuration/network issue
-    // If it fails with "permission denied", it means keys worked but rules blocked it (which is fine for this test)
+    // We try to fetch from server to verify connection and keys
     await getDocFromServer(doc(db, 'system', 'connectivity_test'));
     connectionStatus = 'connected';
+    connectionErrorMessage = null;
   } catch (error: any) {
-    if (error?.message?.includes('the client is offline') || error?.code === 'unavailable') {
+    const msg = error?.message || String(error);
+    
+    if (msg.includes('Database') && msg.includes('not found')) {
       connectionStatus = 'error';
-      connectionErrorMessage = "Network connection failed. This usually indicates blocked cross-site tracking in your browser or incorrect Firebase keys. Try opening in a new tab.";
+      connectionErrorMessage = `Database not found. Active ID: ${firebaseConfig.firestoreDatabaseId}. This usually indicates the database is still provisioning or the ID is incorrect.`;
+      console.error("Firebase Connection Error Diagnostic:", msg);
+    } else if (msg.includes('the client is offline') || error?.code === 'unavailable' || msg.includes('network')) {
+      connectionStatus = 'error';
+      connectionErrorMessage = "Network connection failed. This usually indicates blocked cross-site tracking in your browser or a firewall issue. Try opening the app in a new tab.";
       console.warn("Firebase Connection Warning:", connectionErrorMessage);
     } else {
-      // Any other error (like permission denied) means we AT LEAST reached the server, so keys are likely valid syntax
+      // Permission denied or other errors usually mean we reached the server
       connectionStatus = 'connected';
+      connectionErrorMessage = null;
     }
   }
 }

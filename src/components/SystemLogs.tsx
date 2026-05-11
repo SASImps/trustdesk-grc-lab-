@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { db, auth } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { ControlAction } from '../types';
 import { Activity, Terminal, ShieldAlert, Cpu, Hash, Clock, ArrowRight } from 'lucide-react';
@@ -21,7 +21,7 @@ export default function SystemLogs() {
     const unsub = onSnapshot(q, (s) => {
       setLogs(s.docs.map(d => ({ id: d.id, ...d.data() } as ControlAction)));
       setLoading(false);
-    });
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'controlActions'));
 
     return unsub;
   }, []);

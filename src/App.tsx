@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { isFirebaseConfigured, auth, getConnectionStatus } from './lib/firebase';
+import { isFirebaseConfigured, auth, getConnectionStatus, googleProvider } from './lib/firebase';
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
+  signInWithPopup,
   signOut, 
   onAuthStateChanged, 
   updateProfile,
   User 
 } from 'firebase/auth';
-import { LayoutDashboard, ShieldAlert, FileText, Activity, LogOut, Lock, Database, AlertTriangle, Settings, ExternalLink, Mail, Key, User as UserIcon } from 'lucide-react';
+import { LayoutDashboard, ShieldAlert, FileText, Activity, LogOut, Lock, Database, AlertTriangle, Settings, ExternalLink, Mail, Key, User as UserIcon, Layers, RefreshCw, Smartphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import RiskRegistry from './components/RiskRegistry';
 import TPRM from './components/TPRM';
@@ -16,6 +17,7 @@ import GovernanceEngine from './components/GovernanceEngine';
 import LabModules from './components/LabModules';
 import Dashboard from './components/Dashboard';
 import EvidenceVault from './components/EvidenceVault';
+import NetworkScan from './components/NetworkScan';
 import SettingsPanel from './components/Settings';
 import SystemLogs from './components/SystemLogs';
 
@@ -84,6 +86,20 @@ export default function App() {
 
   const logout = () => signOut(auth);
 
+  const handleGoogleLogin = async () => {
+    if (authIsLoading || !isFirebaseConfigured) return;
+    setAuthIsLoading(true);
+    setAuthError(null);
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error: any) {
+      console.error("Google Auth Error:", error);
+      setAuthError(error.message || "Could not sign in with Google.");
+    } finally {
+      setAuthIsLoading(false);
+    }
+  };
+
   if (loading) return <div className="h-screen flex items-center justify-center bg-brand-bg text-brand-accent font-mono text-xs tracking-widest animate-pulse">INITIALIZING TRUSTDESK_OS...</div>;
 
   const showConfigScreen = !isFirebaseConfigured || connectionStatus === 'error';
@@ -127,6 +143,13 @@ export default function App() {
                       <ExternalLink className="w-3 h-3" />
                       Open App in Pure Tab
                     </a>
+                    <button 
+                      onClick={() => window.location.reload()}
+                      className="ml-3 inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold border border-white/10 transition-all"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      Retry Connection
+                    </button>
                   </div>
                 )}
               </div>
@@ -290,6 +313,26 @@ export default function App() {
                 isSignUp ? 'Create Laboratory Account' : 'Initialize Session'
               )}
             </button>
+
+            {!isSignUp && (
+              <div className="pt-4 space-y-4">
+                <div className="flex items-center gap-4">
+                  <div className="h-px bg-white/10 flex-1" />
+                  <span className="text-[10px] font-mono text-brand-subtext/40 uppercase tracking-widest">OR</span>
+                  <div className="h-px bg-white/10 flex-1" />
+                </div>
+                <button 
+                  type="button"
+                  onClick={handleGoogleLogin}
+                  disabled={authIsLoading}
+                  className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white py-4 rounded-xl font-bold text-xs tracking-tight transition-all flex items-center justify-center gap-3"
+                >
+                  <img src="https://www.gstatic.com/firebase/anonymous-scan.png" className="w-5 h-5 hidden" alt="" />
+                  <Smartphone className="w-4 h-4 text-brand-accent" />
+                  Sign in with Google
+                </button>
+              </div>
+            )}
           </form>
 
           <div className="mt-6 text-center">
@@ -318,6 +361,7 @@ export default function App() {
     { id: 'tprm', label: 'TPRM Proxy', icon: ShieldAlert },
     { id: 'governance', label: 'Gov Engine', icon: FileText },
     { id: 'labs', label: 'Practice Lab', icon: Activity },
+    { id: 'infra', label: 'Network Scan', icon: Layers },
     { id: 'vault', label: 'Evidence Vault', icon: Lock },
     { id: 'audit-logs', label: 'System Logs', icon: FileText },
     { id: 'settings', label: 'Configuration', icon: Settings },
@@ -406,6 +450,7 @@ export default function App() {
               {activeTab === 'tprm' && <TPRM />}
               {activeTab === 'governance' && <GovernanceEngine />}
               {activeTab === 'labs' && <LabModules />}
+              {activeTab === 'infra' && <NetworkScan />}
               {activeTab === 'vault' && <EvidenceVault />}
               {activeTab === 'audit-logs' && <SystemLogs />}
               {activeTab === 'settings' && <SettingsPanel />}

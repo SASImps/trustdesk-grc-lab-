@@ -2,12 +2,17 @@ import { useState, useEffect } from 'react';
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, Timestamp, orderBy } from 'firebase/firestore';
 import { Risk } from '../types';
-import { AlertCircle, Plus, Info, MoveDiagonal, CheckCircle2, TrendingUp, Activity, Database } from 'lucide-react';
-import { motion } from 'motion/react';
+import { AlertCircle, Plus, Info, MoveDiagonal, CheckCircle2, TrendingUp, Activity, Database, Sparkles, X, Shield, ArrowRight } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { logSystemEvent } from '../lib/logger';
+import { generateGRCSolution } from '../services/gemini';
 
 export default function RiskRegistry() {
   const [risks, setRisks] = useState<Risk[]>([]);
   const [isAdding, setIsAdding] = useState(false);
+  const [selectedRisk, setSelectedRisk] = useState<Risk | null>(null);
+  const [remediating, setRemediating] = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState<any>(null);
   const [newRisk, setNewRisk] = useState<Partial<Risk>>({
     title: '',
     description: '',
@@ -34,11 +39,21 @@ export default function RiskRegistry() {
     e.preventDefault();
     if (!auth.currentUser) return;
     try {
-      await addDoc(collection(db, 'risks'), {
+      const riskData = {
         ...newRisk,
         ownerId: auth.currentUser.uid,
         createdAt: new Date().toISOString()
-      });
+      };
+      const docRef = await addDoc(collection(db, 'risks'), riskData);
+      
+      await logSystemEvent(
+        `Risk Identified: ${newRisk.title}`,
+        'RISK_ASSESSMENT',
+        'success',
+        `New risk logged with inherent score of ${Number(newRisk.inherentImpact)! * Number(newRisk.inherentLikelihood)!}`,
+        docRef.id
+      );
+
       setIsAdding(false);
       setNewRisk({
         title: '',
@@ -51,6 +66,53 @@ export default function RiskRegistry() {
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'risks');
+    }
+  };
+
+  const handleRemediate = async (risk: Risk) => {
+    setSelectedRisk(risk);
+    setRemediating(true);
+    setAiSuggestion(null);
+    
+    try {
+      const suggestion = await generateGRCSolution(
+        "TrustDesk Lab", 
+        "Cybersecurity Risk Management", 
+        `Risk: ${risk.title}. Description: ${risk.description}. Inherent Score: ${risk.inherentImpact * risk.inherentLikelihood}`
+      );
+      setAiSuggestion(suggestion);
+      
+      await logSystemEvent(
+        `AI Remediation Requested for: ${risk.title}`,
+        'AI_AUDIT',
+        'success',
+        `Gemini generated controls: ${suggestion.controls?.join(', ')}`,
+        risk.id
+      );
+    } catch (error) {
+      console.error("AI Remediation failed:", error);
+    } finally {
+      setRemediating(false);
+    }
+  };
+
+  const updateStatus = async (riskId: string, newStatus: Risk['status']) => {
+    try {
+      await updateDoc(doc(db, 'risks', riskId), { 
+        status: newStatus,
+        residualImpact: newStatus === 'Remediated' ? 1 : 2,
+        residualLikelihood: newStatus === 'Remediated' ? 1 : 2
+      });
+      
+      await logSystemEvent(
+        `Risk Status Updated: ${newStatus}`,
+        'RISK_ASSESSMENT',
+        'success',
+        `Risk ID ${riskId} moved to ${newStatus}`,
+        riskId
+      );
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `risks/${riskId}`);
     }
   };
 
@@ -116,6 +178,7 @@ export default function RiskRegistry() {
             <motion.div 
               layout
               key={risk.id} 
+              onClick={() => handleRemediate(risk)}
               className="grid grid-cols-6 p-8 items-center hover:bg-white/[0.02] transition-colors group cursor-pointer"
             >
               <div className="col-span-2 px-6">
@@ -132,10 +195,10 @@ export default function RiskRegistry() {
               </div>
               <div className="flex justify-center">
                 <span className={`text-[9px] uppercase font-bold px-3 py-1.5 rounded-xl border tracking-widest ${
-                  risk.status === 'Remediated' ? 'border-green-500/30 text-green-500 bg-green-500/10' :
-                  risk.status === 'Identified' ? 'border-red-500/30 text-red-500 bg-red-500/10' : 
-                  'border-orange-500/30 text-orange-500 bg-orange-500/10'
-                }`}>
+                   risk.status === 'Remediated' ? 'border-green-500/30 text-green-500 bg-green-500/10' :
+                   risk.status === 'Identified' ? 'border-red-500/30 text-red-500 bg-red-500/10' : 
+                   'border-orange-500/30 text-orange-500 bg-orange-500/10'
+                 }`}>
                   {risk.status}
                 </span>
               </div>
@@ -155,54 +218,194 @@ export default function RiskRegistry() {
         </div>
       </div>
 
-      {isAdding && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-[#000]/60 backdrop-blur-xl">
-          <motion.div 
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-brand-panel w-full max-w-xl rounded-[40px] p-12 shadow-[0_30px_100px_rgba(0,0,0,0.8)] relative border border-white/5"
-          >
-            <h3 className="font-serif text-3xl text-white mb-8 border-b border-white/5 pb-6">Log Compliance Finding</h3>
-            <form onSubmit={handleAdd} className="space-y-6">
-              <div>
-                <label className="col-label block mb-2.5">Risk Identification Label</label>
-                <input 
-                  autoFocus
-                  required
-                  placeholder="e.g. Broken Authentication in Auth0"
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm text-white focus:outline-none focus:border-brand-accent transition-colors"
-                  value={newRisk.title}
-                  onChange={e => setNewRisk({...newRisk, title: e.target.value})}
-                />
-              </div>
-              <div>
-                <label className="col-label block mb-2.5">Technical Context & Meta_Data</label>
-                <textarea 
-                  rows={3}
-                  placeholder="Describe the vulnerability or finding..."
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm text-white focus:outline-none focus:border-brand-accent transition-colors resize-none"
-                  value={newRisk.description}
-                  onChange={e => setNewRisk({...newRisk, description: e.target.value})}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <label className="col-label block mb-2.5 text-red-400">Inherent Impact (1-5)</label>
-                  <input type="number" min="1" max="5" className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm text-white" value={newRisk.inherentImpact} onChange={e => setNewRisk({...newRisk, inherentImpact: parseInt(e.target.value)})} />
+      <AnimatePresence>
+        {(isAdding || selectedRisk) && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-[#000]/60 backdrop-blur-xl">
+            {isAdding ? (
+              <motion.div 
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-brand-panel w-full max-w-xl rounded-[40px] p-12 shadow-[0_30px_100px_rgba(0,0,0,0.8)] relative border border-white/5"
+              >
+                <button 
+                  onClick={() => setIsAdding(false)}
+                  className="absolute right-8 top-8 w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/40 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+                <h3 className="font-serif text-3xl text-white mb-8 border-b border-white/5 pb-6">Log Compliance Finding</h3>
+                <form onSubmit={handleAdd} className="space-y-6">
+                  <div>
+                    <label className="col-label block mb-2.5">Risk Identification Label</label>
+                    <input 
+                      autoFocus
+                      required
+                      placeholder="e.g. Broken Authentication in Auth0"
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm text-white focus:outline-none focus:border-brand-accent transition-colors"
+                      value={newRisk.title}
+                      onChange={e => setNewRisk({...newRisk, title: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="col-label block mb-2.5">Technical Context & Meta_Data</label>
+                    <textarea 
+                      rows={3}
+                      placeholder="Describe the vulnerability or finding..."
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm text-white focus:outline-none focus:border-brand-accent transition-colors resize-none"
+                      value={newRisk.description}
+                      onChange={e => setNewRisk({...newRisk, description: e.target.value})}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <label className="col-label block mb-2.5 text-red-400">Inherent Impact (1-5)</label>
+                      <input type="number" min="1" max="5" className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm text-white" value={newRisk.inherentImpact} onChange={e => setNewRisk({...newRisk, inherentImpact: parseInt(e.target.value)})} />
+                    </div>
+                    <div>
+                      <label className="col-label block mb-2.5 text-red-400">Inherent Likelihood (1-5)</label>
+                      <input type="number" min="1" max="5" className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm text-white" value={newRisk.inherentLikelihood} onChange={e => setNewRisk({...newRisk, inherentLikelihood: parseInt(e.target.value)})} />
+                    </div>
+                  </div>
+                  <div className="flex gap-4 pt-8">
+                    <button type="submit" className="flex-1 bg-brand-accent text-white py-4 rounded-2xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-brand-accent/20">Commit Entry</button>
+                    <button type="button" onClick={() => setIsAdding(false)} className="px-8 py-4 bg-white/5 border border-white/10 text-white rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-white/10 transition-colors">Cancel</button>
+                  </div>
+                </form>
+              </motion.div>
+            ) : (
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-brand-panel w-full max-w-4xl rounded-[48px] p-12 shadow-[0_30px_100px_rgba(0,0,0,0.8)] relative border border-white/5 flex gap-12"
+              >
+                <div className="flex-1 space-y-8">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="text-[10px] font-mono text-brand-subtext/40 uppercase tracking-[0.3em] mb-2 block">Risk_Dossier_ID: {selectedRisk?.id?.slice(0, 12)}</span>
+                      <h3 className="font-serif text-4xl text-white">{selectedRisk?.title}</h3>
+                    </div>
+                    <button 
+                      onClick={() => setSelectedRisk(null)}
+                      className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/40 hover:text-white transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="p-8 bg-black/40 rounded-3xl border border-white/5 space-y-4">
+                    <p className="col-label">Contextual Analysis</p>
+                    <p className="text-brand-subtext leading-relaxed italic">"{selectedRisk?.description}"</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="p-6 bg-white/5 rounded-3xl border border-white/5">
+                      <p className="col-label mb-3">Inherent Risk Matrix</p>
+                      <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-serif text-2xl ${getRiskColor(selectedRisk!.inherentImpact, selectedRisk!.inherentLikelihood)}`}>
+                          {selectedRisk!.inherentImpact * selectedRisk!.inherentLikelihood}
+                        </div>
+                        <div className="text-[10px] font-mono text-brand-subtext/60 leading-tight">
+                          Impact: {selectedRisk?.inherentImpact}<br />
+                          Likelihood: {selectedRisk?.inherentLikelihood}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="p-6 bg-white/5 rounded-3xl border border-white/5">
+                      <p className="col-label mb-3">Post-Mitigation Status</p>
+                      <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-serif text-2xl ${getRiskColor(selectedRisk!.residualImpact, selectedRisk!.residualLikelihood)}`}>
+                          {selectedRisk!.residualImpact * selectedRisk!.residualLikelihood}
+                        </div>
+                        <div className="text-[10px] font-mono text-brand-subtext/60 leading-tight uppercase tracking-widest font-bold">
+                          {selectedRisk?.status}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-4 pt-6">
+                    {['Identified', 'Mitigating', 'Remediated', 'Accepted'].map((status) => (
+                      <button
+                        key={status}
+                        onClick={() => updateStatus(selectedRisk!.id!, status as any)}
+                        className={`flex-1 py-4 px-2 rounded-2xl text-[9px] font-bold uppercase tracking-widest border transition-all ${
+                          selectedRisk?.status === status 
+                          ? 'bg-brand-accent text-white border-brand-accent' 
+                          : 'bg-white/5 text-white/40 border-white/5 hover:border-white/20'
+                        }`}
+                      >
+                        {status}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <label className="col-label block mb-2.5 text-red-400">Inherent Likelihood (1-5)</label>
-                  <input type="number" min="1" max="5" className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm text-white" value={newRisk.inherentLikelihood} onChange={e => setNewRisk({...newRisk, inherentLikelihood: parseInt(e.target.value)})} />
+
+                <div className="w-80 space-y-6">
+                   <div className="bg-brand-accent p-8 rounded-[32px] text-white space-y-6 relative overflow-hidden h-full flex flex-col">
+                      <div className="absolute right-0 top-0 w-32 h-32 bg-white/10 rounded-full blur-3xl -mr-16 -mt-16" />
+                      <div className="flex items-center gap-4 relative z-10">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-brand-accent shadow-lg">
+                          <Sparkles className="w-5 h-5" />
+                        </div>
+                        <h4 className="font-serif text-xl italic">AI_Remediation</h4>
+                      </div>
+
+                      {remediating ? (
+                        <div className="flex-1 flex flex-col items-center justify-center space-y-4 relative z-10">
+                           <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin" />
+                           <p className="text-[10px] font-mono uppercase tracking-[0.3em]">Cortex_Reasoning...</p>
+                        </div>
+                      ) : aiSuggestion ? (
+                        <div className="flex-1 space-y-6 relative z-10 overflow-y-auto pr-2 custom-scrollbar">
+                           <div className="space-y-3">
+                             <p className="text-[9px] uppercase font-bold text-white/50 tracking-widest">Recommended Controls</p>
+                             <ul className="space-y-2">
+                               {aiSuggestion.controls?.map((c: string, i: number) => (
+                                 <li key={i} className="text-xs flex gap-2">
+                                   <ArrowRight className="w-3 h-3 shrink-0 mt-0.5" />
+                                   <span>{c}</span>
+                                 </li>
+                               ))}
+                             </ul>
+                           </div>
+                           <div className="p-4 bg-black/20 rounded-2xl border border-white/10 space-y-2">
+                             <p className="text-[9px] uppercase font-bold text-white/50 tracking-widest flex gap-2">
+                               <Shield className="w-3 h-3" /> NIST Mapping
+                             </p>
+                             <p className="text-[10px] leading-relaxed italic opacity-80">
+                               Matches NIST AI RMF Manage criteria for technical robustness.
+                             </p>
+                           </div>
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 relative z-10">
+                           <p className="text-xs text-white/60 leading-relaxed">Let TrustDesk AI generate a specific control strategy for this finding.</p>
+                           <button 
+                             onClick={() => handleRemediate(selectedRisk!)}
+                             className="w-full py-4 bg-white text-brand-accent rounded-2xl font-bold text-[10px] uppercase tracking-widest hover:scale-105 transition-all"
+                           >
+                              Generate Strategy
+                           </button>
+                        </div>
+                      )}
+
+                      <div className="pt-6 border-t border-white/10 mt-auto flex justify-between items-center relative z-10">
+                         <span className="text-[8px] font-mono text-white/40 uppercase">v4.1.Neural</span>
+                         <div className="flex gap-1">
+                            <div className="w-1 h-1 rounded-full bg-white" />
+                            <div className="w-1 h-1 rounded-full bg-white/40" />
+                            <div className="w-1 h-1 rounded-full bg-white/40" />
+                         </div>
+                      </div>
+                   </div>
                 </div>
-              </div>
-              <div className="flex gap-4 pt-8">
-                <button type="submit" className="flex-1 bg-brand-accent text-white py-4 rounded-2xl font-bold text-xs uppercase tracking-widest shadow-lg shadow-brand-accent/20">Commit Entry</button>
-                <button type="button" onClick={() => setIsAdding(false)} className="px-8 py-4 bg-white/5 border border-white/10 text-white rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-white/10 transition-colors">Cancel</button>
-              </div>
-            </form>
-          </motion.div>
-        </div>
-      )}
+              </motion.div>
+            )}
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

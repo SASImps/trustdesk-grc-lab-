@@ -1,6 +1,9 @@
 import { useState } from 'react';
-import { BookOpen, Search, Map, CheckCircle2, ChevronRight, Download } from 'lucide-react';
+import { BookOpen, Search, Map, CheckCircle2, ChevronRight, Download, Sparkles, Wand2, ShieldCheck, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { generateGRCSolution } from '../services/gemini';
+import { createEvidence } from '../lib/evidence';
+import { logSystemEvent } from '../lib/logger';
 
 const FRAMEWORKS = [
   {
@@ -66,8 +69,10 @@ const FRAMEWORKS = [
 export default function GovernanceEngine() {
   const [selectedFramework, setSelectedFramework] = useState(FRAMEWORKS[0]);
   const [search, setSearch] = useState('');
-  const [activeModal, setActiveModal] = useState<'audit' | 'strategy' | null>(null);
+  const [activeModal, setActiveModal] = useState<'audit' | 'strategy' | 'ai-generator' | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [aiPolicy, setAiPolicy] = useState<any>(null);
   const [controlStatuses, setControlStatuses] = useState<Record<string, 'Candidate' | 'In Review' | 'Approved'>>({});
 
   const toggleStatus = (id: string) => {
@@ -76,6 +81,47 @@ export default function GovernanceEngine() {
       const next = current === 'Candidate' ? 'In Review' : current === 'In Review' ? 'Approved' : 'Candidate';
       return { ...prev, [id]: next };
     });
+  };
+
+  const handleGeneratePolicy = async () => {
+    setGenerating(true);
+    setAiPolicy(null);
+    setActiveModal('ai-generator');
+    try {
+      const result = await generateGRCSolution(
+        "TrustDesk Labs",
+        selectedFramework.name,
+        `Generate a comprehensive enterprise policy aligned with ${selectedFramework.name}.`
+      );
+      setAiPolicy(result);
+      
+      await logSystemEvent(
+        `AI Policy Drafted: ${selectedFramework.id}`,
+        'POLICY_GENERATION',
+        'success',
+        `Generated ${selectedFramework.name} compliant policy draft.`
+      );
+    } catch (error) {
+      console.error("Policy generation failed:", error);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const commitToVault = async () => {
+    if (!aiPolicy) return;
+    try {
+      await createEvidence(
+        'POLICY',
+        `${selectedFramework.id} Enterprise Policy`,
+        `AI-generated policy framework for ${selectedFramework.name} compliance.`,
+        aiPolicy
+      );
+      setActiveModal(null);
+      setAiPolicy(null);
+    } catch (error) {
+      console.error("Failed to commit to vault:", error);
+    }
   };
 
   const handleDownload = () => {
@@ -143,6 +189,65 @@ export default function GovernanceEngine() {
                     "Cryptographic evidence ensures that this control has been verified against immutable logs and cannot be tampered with."
                   </p>
                 </div>
+              ) : activeModal === 'ai-generator' ? (
+                <div className="space-y-8">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-brand-accent rounded-2xl flex items-center justify-center text-white shadow-lg shadow-brand-accent/20">
+                      <Sparkles className="w-6 h-6" />
+                    </div>
+                    <h3 className="font-serif text-3xl text-white">Cortex Policy Composer</h3>
+                  </div>
+
+                  {generating ? (
+                    <div className="py-20 flex flex-col items-center justify-center space-y-6">
+                       <div className="w-16 h-16 border-4 border-brand-accent/20 border-t-brand-accent rounded-full animate-spin" />
+                       <div className="text-center">
+                         <p className="text-white font-serif italic text-2xl mb-2">Synthesizing Standards...</p>
+                         <p className="text-[10px] font-mono text-brand-subtext/40 uppercase tracking-[0.3em]">Mapping {selectedFramework.id} Requirements</p>
+                       </div>
+                    </div>
+                  ) : aiPolicy ? (
+                    <div className="space-y-8">
+                       <div className="max-h-[50vh] overflow-y-auto pr-4 space-y-8 custom-scrollbar">
+                         <div className="space-y-4">
+                           <h4 className="flex items-center gap-2 text-brand-accent font-bold uppercase text-[10px] tracking-widest">
+                             <FileText className="w-4 h-4" /> Policy Statement
+                           </h4>
+                           <div className="p-6 bg-white/5 rounded-2xl border border-white/5 italic text-sm text-brand-subtext/80 leading-relaxed">
+                             {aiPolicy.policy}
+                           </div>
+                         </div>
+                         <div className="space-y-4">
+                           <h4 className="flex items-center gap-2 text-brand-accent font-bold uppercase text-[10px] tracking-widest">
+                             <ShieldCheck className="w-4 h-4" /> Strategic Controls
+                           </h4>
+                           <ul className="space-y-3">
+                             {aiPolicy.controls?.map((c: string, i: number) => (
+                               <li key={i} className="flex gap-3 text-sm text-brand-subtext/80 leading-relaxed p-4 bg-white/[0.02] border border-white/5 rounded-xl">
+                                 <span className="text-white font-bold">{i+1}.</span>
+                                 <span>{c}</span>
+                               </li>
+                             ))}
+                           </ul>
+                         </div>
+                       </div>
+                       <div className="pt-6 border-t border-white/5 flex gap-4">
+                         <button 
+                           onClick={commitToVault}
+                           className="flex-1 py-5 bg-brand-accent text-white rounded-2xl font-bold text-[10px] uppercase tracking-[0.4em] shadow-lg shadow-brand-accent/20 hover:scale-[1.02] active:scale-95 transition-all"
+                         >
+                           Commit to Evidence Vault
+                         </button>
+                         <button 
+                           onClick={() => setActiveModal(null)}
+                           className="px-8 py-5 bg-white/5 border border-white/10 text-white rounded-2xl font-bold text-[10px] uppercase tracking-widest hover:bg-white/10"
+                         >
+                           Discard
+                         </button>
+                       </div>
+                    </div>
+                  ) : null}
+                </div>
               ) : (
                 <div className="space-y-8">
                   <div className="flex items-center gap-4">
@@ -201,15 +306,23 @@ export default function GovernanceEngine() {
                   "{selectedFramework.description}"
                 </p>
               </div>
-              <button 
-                onClick={handleDownload}
-                disabled={downloading}
-                className={`w-12 h-12 flex items-center justify-center bg-white/5 border border-white/10 rounded-2xl text-white transition-all shadow-lg active:scale-95 ${
-                  downloading ? 'opacity-50' : 'hover:bg-brand-accent hover:border-brand-accent'
-                }`}
-              >
-                 {downloading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Download className="w-5 h-5" />}
-              </button>
+              <div className="flex gap-4">
+                <button 
+                  onClick={handleGeneratePolicy}
+                  className="w-12 h-12 flex items-center justify-center bg-brand-accent/10 border border-brand-accent/20 rounded-2xl text-brand-accent transition-all shadow-lg hover:bg-brand-accent hover:text-white"
+                >
+                   <Wand2 className="w-5 h-5" />
+                </button>
+                <button 
+                  onClick={handleDownload}
+                  disabled={downloading}
+                  className={`w-12 h-12 flex items-center justify-center bg-white/5 border border-white/10 rounded-2xl text-white transition-all shadow-lg active:scale-95 ${
+                    downloading ? 'opacity-50' : 'hover:bg-brand-accent hover:border-brand-accent'
+                  }`}
+                >
+                   {downloading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Download className="w-5 h-5" />}
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-16">
