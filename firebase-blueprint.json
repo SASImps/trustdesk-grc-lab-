@@ -1,105 +1,99 @@
 {
   "entities": {
     "Risk": {
-      "title": "Risk Entity",
-      "description": "Represents a compliance risk or finding.",
+      "title": "Cybersecurity Risk",
+      "description": "Represents a tracked risk, vulnerability, or compliance issue.",
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "description": { "type": "string" },
-        "inherentImpact": { "type": "number" },
-        "inherentLikelihood": { "type": "number" },
-        "residualImpact": { "type": "number" },
-        "residualLikelihood": { "type": "number" },
-        "status": { "type": "string", "enum": ["Identified", "Mitigating", "Remediated", "Accepted"] },
-        "ownerId": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "title": { "type": "string", "description": "The title of the risk" },
+        "description": { "type": "string", "description": "Detailed description of the risk" },
+        "impact": { "type": "string", "enum": ["Low", "Moderate", "High", "Critical"] },
+        "owner": { "type": "string", "description": "Team or person responsible" },
+        "status": { "type": "string", "enum": ["Open", "Pending", "Mitigated"] },
+        "compliance": { "type": "string", "description": "Linked compliance framework (e.g., SOC2)" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "ownerId": { "type": "string", "description": "The UID of the user who logged the risk" }
       },
-      "required": ["title", "ownerId", "status", "inherentImpact", "inherentLikelihood"]
-    },
-    "VendorAudit": {
-      "title": "Vendor Audit",
-      "description": "Records AI-assisted vendor contract audits.",
-      "type": "object",
-      "properties": {
-        "vendorName": { "type": "string" },
-        "contractSummary": { "type": "string" },
-        "riskScore": { "type": "number" },
-        "findings": { "type": "array", "items": { "type": "string" } },
-        "status": { "type": "string" },
-        "userId": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["vendorName", "userId", "riskScore"]
-    },
-    "ControlAction": {
-      "title": "Control Action Log",
-      "description": "System event log for audit trails.",
-      "type": "object",
-      "properties": {
-        "controlId": { "type": "string" },
-        "action": { "type": "string" },
-        "type": { "type": "string", "enum": ["AI_AUDIT", "RISK_ASSESSMENT", "POLICY_GENERATION", "LAB_EXECUTION", "SYSTEM"] },
-        "status": { "type": "string", "enum": ["success", "failure"] },
-        "details": { "type": "string" },
-        "userId": { "type": "string" },
-        "timestamp": { "type": "string", "format": "date-time" }
-      },
-      "required": ["action", "type", "userId", "timestamp"]
+      "required": ["title", "impact", "status", "ownerId"]
     },
     "Evidence": {
-      "title": "Evidence Artifact",
-      "description": "Immutable compliance evidence stored in the vault.",
+      "title": "Compliance Evidence",
+      "description": "Evidence collected for an audit or control.",
       "type": "object",
       "properties": {
-        "type": { "type": "string", "enum": ["POLICY", "AUDIT", "CONTROL_VERIFICATION", "CERTIFICATION"] },
         "title": { "type": "string" },
         "description": { "type": "string" },
-        "hash": { "type": "string" },
-        "signature": { "type": "string" },
-        "verifier": { "type": "string" },
-        "timestamp": { "type": "string", "format": "date-time" },
-        "userId": { "type": "string" },
-        "metadata": { "type": "object" }
+        "fileType": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "controlId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "verified", "rejected", "expiring"] },
+        "uploadedBy": { "type": "string", "description": "The UID of the user who uploaded the evidence" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["type", "title", "userId", "hash", "signature"]
+      "required": ["title", "fileType", "uploadedBy", "status"]
+    },
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stored user information.",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "viewer", "editor"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "role"]
+    },
+    "ControlAction": {
+      "title": "Control Action",
+      "description": "Recorded automation or manual action performed on a control.",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string" },
+        "controlId": { "type": "string" },
+        "details": { "type": "string" },
+        "status": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["action", "status", "timestamp"]
     },
     "InventoryItem": {
       "title": "Inventory Item",
-      "description": "Enterprise cloud topography service node.",
+      "description": "Asset or resource in the organizational inventory.",
       "type": "object",
       "properties": {
         "name": { "type": "string" },
         "type": { "type": "string" },
-        "provider": { "type": "string" },
-        "status": { "type": "string", "enum": ["Healthy", "Degraded", "Vulnerable"] },
-        "lastScanned": { "type": "string", "format": "date-time" },
-        "vulnerabilities": { "type": "array", "items": { "type": "string" } },
-        "userId": { "type": "string" }
+        "owner": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["name", "type", "userId", "status"]
+      "required": ["name", "type"]
     }
   },
   "firestore": {
-    "risks": {
+    "/risks/{riskId}": {
       "schema": "Risk",
-      "description": "Root collection for all compliance risks."
+      "description": "Collection of identified risks."
     },
-    "vendorAudits": {
-      "schema": "VendorAudit",
-      "description": "Root collection for all TPRM audits."
-    },
-    "controlActions": {
-      "schema": "ControlAction",
-      "description": "System event and audit log stream."
-    },
-    "evidence": {
+    "/evidence/{evidenceId}": {
       "schema": "Evidence",
-      "description": "The evidence vault for immutable artifacts."
+      "description": "Vault for storing compliance evidence."
     },
-    "inventory": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles and permissions."
+    },
+    "/controlActions/{actionId}": {
+      "schema": "ControlAction",
+      "description": "History of actions taken on controls."
+    },
+    "/inventory/{itemId}": {
       "schema": "InventoryItem",
-      "description": "Infrastructure service inventory nodes."
+      "description": "Catalog of assets and resources."
     }
   }
 }

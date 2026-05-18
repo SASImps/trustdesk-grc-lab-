@@ -1,14 +1,13 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 0. Global Safety Net
+    // 0. Default Deny
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Phase 3: Primitive Definitions
+    // --- Helpers ---
     function isSignedIn() {
-      // Mandate signed in users (relaxed email verification for better dev experience if needed)
       return request.auth != null;
     }
 
@@ -17,7 +16,6 @@ service cloud.firestore {
     }
 
     function isValidId(id) {
-      // Path Variable Hardening (Pillar 3)
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
@@ -29,98 +27,107 @@ service cloud.firestore {
       return resource.data;
     }
 
-    function isLimitString(val, max) {
-      return val is string && val.size() <= max;
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
-    // Validation Blueprints (Pillar 2)
+    // --- Validation Helpers ---
+
     function isValidRisk(data) {
-      return data.keys().hasAll(['title', 'description', 'ownerId', 'status', 'inherentImpact', 'inherentLikelihood', 'createdAt'])
-        && data.keys().size() <= 10
-        && isLimitString(data.title, 200)
-        && isLimitString(data.description, 2000)
+      return data.keys().hasAll(['title', 'impact', 'status', 'ownerId', 'createdAt', 'updatedAt'])
+        && data.title is string && data.title.size() <= 200
+        && data.impact in ['Low', 'Moderate', 'High', 'Critical']
+        && data.status in ['Open', 'Pending', 'Mitigated']
         && data.ownerId == request.auth.uid
-        && data.status in ['Identified', 'Mitigating', 'Remediated', 'Accepted']
-        && (data.inherentImpact is number || data.inherentImpact is int) && data.inherentImpact >= 1 && data.inherentImpact <= 5
-        && (data.inherentLikelihood is number || data.inherentLikelihood is int) && data.inherentLikelihood >= 1 && data.inherentLikelihood <= 5;
-    }
-
-    function isValidVendorAudit(data) {
-      return data.keys().hasAll(['vendorName', 'contractSummary', 'riskScore', 'findings', 'status', 'userId', 'createdAt'])
-        && data.keys().size() <= 8
-        && isLimitString(data.vendorName, 200)
-        && (data.riskScore is number || data.riskScore is int)
-        && data.findings is list && data.findings.size() <= 50
-        && data.userId == request.auth.uid;
-    }
-
-    function isValidControlAction(data) {
-      return data.keys().hasAll(['action', 'type', 'userId', 'timestamp', 'status', 'details', 'controlId'])
-        && data.keys().size() <= 7
-        && data.userId == request.auth.uid
-        && data.type in ['AI_AUDIT', 'RISK_ASSESSMENT', 'POLICY_GENERATION', 'LAB_EXECUTION', 'SYSTEM']
-        && data.status in ['success', 'failure'];
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
     }
 
     function isValidEvidence(data) {
-      return data.keys().hasAll(['type', 'title', 'description', 'hash', 'signature', 'verifier', 'timestamp', 'userId', 'metadata'])
-        && data.keys().size() <= 10
-        && data.userId == request.auth.uid
-        && isLimitString(data.hash, 128)
-        && isLimitString(data.signature, 256);
+      return data.keys().hasAll(['title', 'fileType', 'uploadedBy', 'status', 'createdAt', 'updatedAt'])
+        && data.title is string && data.title.size() <= 200
+        && data.fileType is string
+        && data.uploadedBy == request.auth.uid
+        && data.status is string
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
     }
 
-    function isValidInventory(data) {
-      return data.keys().hasAll(['name', 'type', 'provider', 'status', 'lastScanned', 'vulnerabilities', 'userId'])
-        && data.keys().size() <= 7
-        && data.userId == request.auth.uid
-        && data.status in ['Healthy', 'Degraded', 'Vulnerable']
-        && data.vulnerabilities is list && data.vulnerabilities.size() <= 20;
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'role', 'createdAt'])
+        && data.email is string && data.email.size() <= 256
+        && data.role in ['admin', 'viewer', 'editor']
+        && data.createdAt is timestamp;
     }
 
-    // Collection Rules
+    function isValidControlAction(data) {
+      return data.keys().hasAll(['action', 'status', 'timestamp'])
+        && data.action is string && data.action.size() <= 300
+        && data.status is string
+        && data.timestamp is timestamp;
+    }
 
-    match /system/connectivity_test {
-      allow read: if true;
+    function isValidInventoryItem(data) {
+      return data.keys().hasAll(['name', 'type'])
+        && data.name is string && data.name.size() <= 200
+        && data.type is string;
+    }
+
+    // --- Rules ---
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) && isValidUser(incoming()) 
+        && incoming().role == 'viewer'
+        && incoming().createdAt == request.time;
+      allow update: if (isOwner(userId) || isAdmin()) 
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL'])
+        && incoming().email == existing().email
+        && incoming().role == existing().role;
     }
 
     match /risks/{riskId} {
-      allow get: if isOwner(existing().ownerId) && isValidId(riskId);
-      // Pillar 8: Secure List Queries (Evaluation against resource.data)
-      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
-      allow create: if isSignedIn() && isValidRisk(incoming()) && isValidId(riskId);
-      allow update: if isOwner(existing().ownerId) && isValidRisk(incoming()) && (
-        // Pillar 4: Action-Based Update Pattern (affectedKeys)
-        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'residualImpact', 'residualLikelihood', 'updatedAt'])
-      ) && incoming().ownerId == existing().ownerId;
-      allow delete: if isOwner(existing().ownerId);
-    }
-
-    match /vendorAudits/{auditId} {
-      allow get: if isOwner(existing().userId) && isValidId(auditId);
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidVendorAudit(incoming()) && isValidId(auditId);
-    }
-
-    match /controlActions/{actionId} {
-      allow get: if isOwner(existing().userId) && isValidId(actionId);
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidControlAction(incoming()) && isValidId(actionId);
+      allow get: if isSignedIn() && (isOwner(existing().ownerId) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(riskId) && isValidRisk(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && (
+        (isOwner(existing().ownerId) && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'impact', 'status', 'updatedAt']) 
+          && incoming().updatedAt == request.time
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt)
+        || isAdmin()
+      );
+      allow delete: if isAdmin();
     }
 
     match /evidence/{evidenceId} {
-      allow get: if isOwner(existing().userId) && isValidId(evidenceId);
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidEvidence(incoming()) && isValidId(evidenceId);
+      allow get: if isSignedIn() && (isOwner(existing().uploadedBy) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uploadedBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(evidenceId) && isValidEvidence(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isAdmin(); 
+      allow delete: if isAdmin();
     }
 
-    match /inventory/{nodeId} {
-      allow get: if isOwner(existing().userId) && isValidId(nodeId);
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidInventory(incoming()) && isValidId(nodeId);
-      allow update: if isOwner(existing().userId) && isValidInventory(incoming()) && (
-        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'vulnerabilities', 'lastScanned'])
-      ) && incoming().userId == existing().userId;
+    match /controlActions/{actionId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin() && isValidControlAction(incoming());
+      allow update, delete: if isAdmin();
+    }
+
+    match /inventory/{itemId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin() && isValidInventoryItem(incoming());
+      allow update, delete: if isAdmin();
+    }
+
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if false; 
     }
   }
 }

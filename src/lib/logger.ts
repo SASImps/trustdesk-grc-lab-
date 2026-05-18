@@ -1,35 +1,55 @@
-import { db, auth, handleFirestoreError, OperationType } from './firebase';
-import { collection, addDoc } from 'firebase/firestore';
-import { ControlAction } from '../types';
+type LogLevel = 'info' | 'warn' | 'error' | 'debug';
 
-export async function logSystemEvent(
-  action: string, 
-  type: ControlAction['type'], 
-  status: 'success' | 'failure' = 'success',
-  details: string = '',
-  controlId: string = 'na'
-) {
-  if (!auth.currentUser) return;
+interface LogEntry {
+  timestamp: string;
+  level: LogLevel;
+  message: string;
+  context?: any;
+}
 
-  const logData: ControlAction = {
-    userId: auth.currentUser.uid,
-    timestamp: new Date().toISOString(),
-    action,
-    type,
-    status,
-    details,
-    controlId
-  };
+export class Logger {
+  private static instance: Logger;
+  private logs: LogEntry[] = [];
 
-  try {
-    await addDoc(collection(db, 'controlActions'), logData);
-  } catch (error) {
-    // We log but don't throw to avoid disrupting the main UI flow for logging failures
-    console.error("Failed to log system event:", error);
-    try {
-      handleFirestoreError(error, OperationType.CREATE, 'controlActions');
-    } catch {
-      // Ignore nested errors
+  private constructor() {}
+
+  public static getInstance(): Logger {
+    if (!Logger.instance) {
+      Logger.instance = new Logger();
     }
+    return Logger.instance;
+  }
+
+  public log(level: LogLevel, message: string, context?: any) {
+    const entry: LogEntry = {
+      timestamp: new Date().toISOString(),
+      level,
+      message,
+      context
+    };
+    this.logs.push(entry);
+    console[level === 'debug' ? 'log' : level](`[${entry.timestamp}] [${level.toUpperCase()}] ${message}`, context || '');
+  }
+
+  public info(message: string, context?: any) {
+    this.log('info', message, context);
+  }
+
+  public warn(message: string, context?: any) {
+    this.log('warn', message, context);
+  }
+
+  public error(message: string, context?: any) {
+    this.log('error', message, context);
+  }
+
+  public debug(message: string, context?: any) {
+    this.log('debug', message, context);
+  }
+
+  public getLogs(): LogEntry[] {
+    return [...this.logs];
   }
 }
+
+export const logger = Logger.getInstance();
